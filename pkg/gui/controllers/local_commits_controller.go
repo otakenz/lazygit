@@ -776,6 +776,8 @@ func (self *LocalCommitsController) squashDown(selectedCommits []*models.Commit,
 		return self.updateTodos(todo.Squash, selectedCommits)
 	}
 
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
 	self.c.Confirm(types.ConfirmOpts{
 		Title:  self.c.Tr.Squash,
 		Prompt: self.c.Tr.SureSquashThisCommit,
@@ -787,7 +789,7 @@ func (self *LocalCommitsController) squashDown(selectedCommits []*models.Commit,
 				HideWorkingTreeState: true,
 			}, func(gocui.Task) error {
 				self.c.LogAction(self.c.Tr.Actions.SquashCommitDown)
-				return self.interactiveRebase(commits, todo.Squash, startIdx, endIdx)
+				return self.interactiveRebase(commits, todo.Squash, startIdx, endIdx, parentIdx)
 			})
 		},
 	})
@@ -799,6 +801,7 @@ func (self *LocalCommitsController) fixup(selectedCommits []*models.Commit, star
 	if self.isRebasing() {
 		return self.updateTodos(todo.Fixup, selectedCommits)
 	}
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
 
 	return self.c.Menu(types.CreateMenuOptions{
 		Title: self.c.Tr.Fixup,
@@ -814,7 +817,7 @@ func (self *LocalCommitsController) fixup(selectedCommits []*models.Commit, star
 						HideWorkingTreeState: true,
 					}, func(gocui.Task) error {
 						self.c.LogAction(self.c.Tr.Actions.FixupCommit)
-						return self.interactiveRebase(commits, todo.Fixup, startIdx, endIdx)
+						return self.interactiveRebase(commits, todo.Fixup, startIdx, endIdx, parentIdx)
 					})
 				},
 				Tooltip: self.c.Tr.FixupTooltip,
@@ -830,7 +833,7 @@ func (self *LocalCommitsController) fixup(selectedCommits []*models.Commit, star
 						HideWorkingTreeState: true,
 					}, func(gocui.Task) error {
 						self.c.LogAction(self.c.Tr.Actions.FixupCommitKeepMessage)
-						return self.interactiveRebaseWithFlag(commits, todo.Fixup, startIdx, endIdx, "-C")
+						return self.interactiveRebaseWithFlag(commits, todo.Fixup, startIdx, endIdx, parentIdx, "-C")
 					})
 				},
 				Tooltip: self.c.Tr.FixupKeepMessageTooltip,
@@ -906,7 +909,10 @@ func (self *LocalCommitsController) switchFromCommitMessagePanelToEditor(filepat
 			self.c.Git().Commit.RewordLastCommitInEditorWithMessageFileCmdObj(filepath))
 	}
 
-	err := self.c.Git().Rebase.BeginInteractiveRebaseForCommit(self.c.Model().Commits, self.context().GetSelectedLineIdx(), false)
+	selectedCommits, _, endIdx := self.c.Contexts().LocalCommits.GetSelectedItems()
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
+	err := self.c.Git().Rebase.BeginInteractiveRebaseForCommit(self.c.Model().Commits, self.context().GetSelectedLineIdx(), parentIdx, false)
 	if err != nil {
 		return err
 	}
@@ -937,11 +943,14 @@ func (self *LocalCommitsController) handleReword(summary string, description str
 			self.c.Tr.RewordingStatus, nil, nil)
 	}
 
+	selectedCommits, _, endIdx := self.c.Contexts().LocalCommits.GetSelectedItems()
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
 	return self.c.WithWaitingStatusBlockingInput(types.WaitingStatusOpts{
 		Message:              self.c.Tr.RewordingStatus,
 		HideWorkingTreeState: true,
 	}, func(gocui.Task) error {
-		err := self.c.Git().Rebase.RewordCommit(commits, selectedIdx, summary, description)
+		err := self.c.Git().Rebase.RewordCommit(commits, selectedIdx, parentIdx, summary, description)
 		if err != nil {
 			return err
 		}
@@ -957,8 +966,11 @@ func (self *LocalCommitsController) doRewordEditor() error {
 		return self.c.RunSubprocessAndRefresh(self.c.Git().Commit.RewordLastCommitInEditorCmdObj())
 	}
 
+	selectedCommits, _, endIdx := self.c.Contexts().LocalCommits.GetSelectedItems()
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
 	subProcess, err := self.c.Git().Rebase.RewordCommitInEditor(
-		self.c.Model().Commits, self.context().GetSelectedLineIdx(),
+		self.c.Model().Commits, self.context().GetSelectedLineIdx(), parentIdx,
 	)
 	if err != nil {
 		return err
@@ -1018,6 +1030,8 @@ func (self *LocalCommitsController) drop(selectedCommits []*models.Commit, start
 
 	isMerge := selectedCommits[0].IsMerge()
 
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
 	self.c.Confirm(types.ConfirmOpts{
 		Title:  self.c.Tr.DropCommitTitle,
 		Prompt: lo.Ternary(isMerge, self.c.Tr.DropMergeCommitPrompt, self.c.Tr.DropCommitPrompt),
@@ -1034,7 +1048,7 @@ func (self *LocalCommitsController) drop(selectedCommits []*models.Commit, start
 				if isMerge {
 					return self.dropMergeCommit(commits, startIdx)
 				}
-				return self.interactiveRebase(commits, todo.Drop, startIdx, endIdx)
+				return self.interactiveRebase(commits, todo.Drop, startIdx, endIdx, parentIdx)
 			})
 		},
 	})
@@ -1052,13 +1066,15 @@ func (self *LocalCommitsController) edit(selectedCommits []*models.Commit, start
 		return self.updateTodos(todo.Edit, selectedCommits)
 	}
 
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
 	commits := self.c.Model().Commits
 	if !commits[endIdx].IsMerge() {
 		return self.c.WithWaitingStatusBlockingInput(types.WaitingStatusOpts{
 			Message:              self.c.Tr.RebasingStatus,
 			HideWorkingTreeState: true,
 		}, func(gocui.Task) error {
-			err := self.c.Git().Rebase.InteractiveRebase(commits, startIdx, endIdx, todo.Edit, "")
+			err := self.c.Git().Rebase.InteractiveRebase(commits, startIdx, endIdx, parentIdx, todo.Edit, "")
 			return self.c.Helpers().MergeAndRebase.CheckMergeOrRebaseWithRefreshOptions(
 				err, types.RefreshOptions{BatchUIUpdates: true})
 		})
@@ -1127,12 +1143,12 @@ func (self *LocalCommitsController) pick(selectedCommits []*models.Commit) error
 	panic("should be disabled when not rebasing")
 }
 
-func (self *LocalCommitsController) interactiveRebase(commits []*models.Commit, action todo.TodoCommand, startIdx int, endIdx int) error {
-	return self.interactiveRebaseWithFlag(commits, action, startIdx, endIdx, "")
+func (self *LocalCommitsController) interactiveRebase(commits []*models.Commit, action todo.TodoCommand, startIdx int, endIdx int, parentIdx int) error {
+	return self.interactiveRebaseWithFlag(commits, action, startIdx, endIdx, parentIdx, "")
 }
 
-func (self *LocalCommitsController) interactiveRebaseWithFlag(commits []*models.Commit, action todo.TodoCommand, startIdx int, endIdx int, flag string) error {
-	err := self.c.Git().Rebase.InteractiveRebase(commits, startIdx, endIdx, action, flag)
+func (self *LocalCommitsController) interactiveRebaseWithFlag(commits []*models.Commit, action todo.TodoCommand, startIdx int, endIdx int, parentIdx int, flag string) error {
+	err := self.c.Git().Rebase.InteractiveRebase(commits, startIdx, endIdx, parentIdx, action, flag)
 
 	return self.c.Helpers().MergeAndRebase.CheckMergeOrRebase(err)
 }
@@ -1269,6 +1285,9 @@ func (self *LocalCommitsController) move(
 func (self *LocalCommitsController) amendTo(commit *models.Commit) error {
 	var handleCommit func() error
 
+	selectedCommits, _, endIdx := self.c.Contexts().LocalCommits.GetSelectedItems()
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
+
 	if self.isSelectedHeadCommit() {
 		handleCommit = func() error {
 			return self.c.Helpers().WorkingTree.WithEnsureCommittableFiles(func() error {
@@ -1289,7 +1308,7 @@ func (self *LocalCommitsController) amendTo(commit *models.Commit) error {
 					HideWorkingTreeState: true,
 				}, func(gocui.Task) error {
 					self.c.LogAction(self.c.Tr.Actions.AmendCommit)
-					err := self.c.Git().Rebase.AmendTo(commits, selectedIdx)
+					err := self.c.Git().Rebase.AmendTo(commits, selectedIdx, parentIdx)
 					return self.c.Helpers().MergeAndRebase.CheckMergeOrRebase(err)
 				})
 			})
@@ -1322,25 +1341,27 @@ func (self *LocalCommitsController) amendAttribute(_ []*models.Commit, start, en
 	// start/end, so capture that here on the UI thread rather than reading
 	// Model().Commits from the worker the menu items dispatch to.
 	commits := self.c.Model().Commits
+	selectedCommits, _, endIdx := self.c.Contexts().LocalCommits.GetSelectedItems()
+	_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
 	opts := self.c.KeybindingsOpts()
 	return self.c.Menu(types.CreateMenuOptions{
 		Title: "Amend commit attribute",
 		Items: []*types.MenuItem{
 			{
 				Label:   self.c.Tr.ResetAuthor,
-				OnPress: func() error { return self.resetAuthor(commits, start, end) },
+				OnPress: func() error { return self.resetAuthor(commits, start, end, parentIdx) },
 				Keys:    opts.GetKeys(opts.Config.AmendAttribute.ResetAuthor),
 				Tooltip: self.c.Tr.ResetAuthorTooltip,
 			},
 			{
 				Label:   self.c.Tr.SetAuthor,
-				OnPress: func() error { return self.setAuthor(commits, start, end) },
+				OnPress: func() error { return self.setAuthor(commits, start, end, parentIdx) },
 				Keys:    opts.GetKeys(opts.Config.AmendAttribute.SetAuthor),
 				Tooltip: self.c.Tr.SetAuthorTooltip,
 			},
 			{
 				Label:   self.c.Tr.AddCoAuthor,
-				OnPress: func() error { return self.addCoAuthor(commits, start, end) },
+				OnPress: func() error { return self.addCoAuthor(commits, start, end, parentIdx) },
 				Keys:    opts.GetKeys(opts.Config.AmendAttribute.AddCoAuthor),
 				Tooltip: self.c.Tr.AddCoAuthorTooltip,
 			},
@@ -1348,13 +1369,13 @@ func (self *LocalCommitsController) amendAttribute(_ []*models.Commit, start, en
 	})
 }
 
-func (self *LocalCommitsController) resetAuthor(commits []*models.Commit, start, end int) error {
+func (self *LocalCommitsController) resetAuthor(commits []*models.Commit, start, end int, parentIdx int) error {
 	return self.c.WithWaitingStatusBlockingInput(types.WaitingStatusOpts{
 		Message:              self.c.Tr.AmendingStatus,
 		HideWorkingTreeState: true,
 	}, func(gocui.Task) error {
 		self.c.LogAction(self.c.Tr.Actions.ResetCommitAuthor)
-		if err := self.c.Git().Rebase.ResetCommitAuthor(commits, start, end); err != nil {
+		if err := self.c.Git().Rebase.ResetCommitAuthor(commits, start, end, parentIdx); err != nil {
 			return err
 		}
 
@@ -1363,7 +1384,7 @@ func (self *LocalCommitsController) resetAuthor(commits []*models.Commit, start,
 	})
 }
 
-func (self *LocalCommitsController) setAuthor(commits []*models.Commit, start, end int) error {
+func (self *LocalCommitsController) setAuthor(commits []*models.Commit, start, end int, parentIdx int) error {
 	self.c.Prompt(types.PromptOpts{
 		Title:               self.c.Tr.SetAuthorPromptTitle,
 		FindSuggestionsFunc: self.c.Helpers().Suggestions.GetAuthorsSuggestionsFunc(),
@@ -1373,7 +1394,7 @@ func (self *LocalCommitsController) setAuthor(commits []*models.Commit, start, e
 				HideWorkingTreeState: true,
 			}, func(gocui.Task) error {
 				self.c.LogAction(self.c.Tr.Actions.SetCommitAuthor)
-				if err := self.c.Git().Rebase.SetCommitAuthor(commits, start, end, value); err != nil {
+				if err := self.c.Git().Rebase.SetCommitAuthor(commits, start, end, parentIdx, value); err != nil {
 					return err
 				}
 
@@ -1386,7 +1407,7 @@ func (self *LocalCommitsController) setAuthor(commits []*models.Commit, start, e
 	return nil
 }
 
-func (self *LocalCommitsController) addCoAuthor(commits []*models.Commit, start, end int) error {
+func (self *LocalCommitsController) addCoAuthor(commits []*models.Commit, start, end int, parentIdx int) error {
 	self.c.Prompt(types.PromptOpts{
 		Title:               self.c.Tr.AddCoAuthorPromptTitle,
 		FindSuggestionsFunc: self.c.Helpers().Suggestions.GetAuthorsSuggestionsFunc(),
@@ -1396,7 +1417,7 @@ func (self *LocalCommitsController) addCoAuthor(commits []*models.Commit, start,
 				HideWorkingTreeState: true,
 			}, func(gocui.Task) error {
 				self.c.LogAction(self.c.Tr.Actions.AddCommitCoAuthor)
-				if err := self.c.Git().Rebase.AddCommitCoAuthor(commits, start, end, value); err != nil {
+				if err := self.c.Git().Rebase.AddCommitCoAuthor(commits, start, end, parentIdx, value); err != nil {
 					return err
 				}
 				self.c.RefreshFromWorker(types.RefreshOptions{})

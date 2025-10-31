@@ -271,12 +271,14 @@ func (self *CommitDiffActions) DiscardSelection(pane types.DiffPaneContext, firs
 			// The rebase runs on a worker, which may not read the model, so the commits
 			// it rewrites are taken here.
 			commits := self.c.Model().Commits
+			selectedCommits, _, endIdx := self.c.Contexts().LocalCommits.GetSelectedItems()
+			_, parentIdx := self.c.Helpers().Commits.GetParentCommit(selectedCommits, endIdx, 1)
 			return self.c.WithWaitingStatusBlockingInput(types.WaitingStatusOpts{
 				Message:              self.c.Tr.RebasingStatus,
 				HideWorkingTreeState: true,
 			}, func(gocui.Task) error {
 				self.c.LogAction(self.c.Tr.Actions.RemovePatchFromCommit)
-				err := self.c.Git().Patch.DeletePatchesFromCommit(commits, commitIndex)
+				err := self.c.Git().Patch.DeletePatchesFromCommit(commits, commitIndex, parentIdx)
 				return self.c.Helpers().MergeAndRebase.CheckMergeOrRebase(err)
 			})
 		},
