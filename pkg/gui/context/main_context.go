@@ -1,7 +1,7 @@
 package context
 
 import (
-	"github.com/jesseduffield/gocui"
+	"github.com/jesseduffield/lazygit/pkg/gocui"
 	"github.com/jesseduffield/lazygit/pkg/gui/types"
 )
 
@@ -21,22 +21,22 @@ func NewMainContext(
 	ctx := &MainContext{
 		SimpleContext: NewSimpleContext(
 			NewBaseContext(NewBaseContextOpts{
-				Kind:             types.MAIN_CONTEXT,
-				View:             view,
-				WindowName:       windowName,
-				Key:              key,
-				Focusable:        true,
-				HighlightOnFocus: false,
+				Kind:                 types.MAIN_CONTEXT,
+				View:                 view,
+				WindowName:           windowName,
+				Key:                  key,
+				Focusable:            true,
+				HasSelectableContent: false,
 			})),
 		SearchTrait: NewSearchTrait(c),
 	}
-
-	ctx.GetView().SetRenderSearchStatus(ctx.SearchTrait.RenderSearchStatus)
-	ctx.GetView().SetOnSelectItem(func(int) {})
 
 	return ctx
 }
 
 func (self *MainContext) ModelSearchResults(searchStr string, caseSensitive bool) []gocui.SearchPosition {
 	return nil
+}
+
+func (self *MainContext) OnSearchSelect(int) {
 }
